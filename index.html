@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>方塊世界交流大廳</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js 3D 引擎 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- MQTT.js 通訊庫 -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- 字型 -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet" />
+
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: "Outfit", sans-serif;
+        user-select: none;
+      }
+      .pixel-font {
+        font-family: "Press Start 2P", monospace;
+      }
+      .mc-btn {
+        background-color: #c6c6c6;
+        border: 2px solid;
+        border-color: #ffffff #555555 #555555 #ffffff;
+        color: #222222;
+        font-family: "Press Start 2P", monospace;
+        font-size: 10px;
+        text-shadow: 1px 1px 0 #ffffff;
+        box-shadow: inset -2px -2px 0 rgba(0, 0, 0, 0.3);
+        cursor: pointer;
+        transition: all 0.05s ease;
+      }
+      .mc-btn:hover {
+        background-color: #d8d8d8;
+      }
+      .mc-btn:active {
+        border-color: #555555 #ffffff #ffffff #555555;
+        box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.3);
+      }
+      canvas#bg-canvas {
+        position: fixed;
+        inset: 0;
+        width: 100% !important;
+        height: 100% !important;
+        z-index: 0;
+        display: block;
+        image-rendering: pixelated;
+      }
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #555555;
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+      }
+    </style>
+  </head>
+  <body class="bg-[#a5c9ff] text-white flex items-center justify-center min-h-screen p-2 sm:p-4">
+
+    <!-- 3D 渲染畫布 -->
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- 1. 登入面板 -->
+    <div id="login-panel" class="relative z-10 w-full max-w-sm bg-black/80 border-4 border-gray-600 rounded-lg p-6 shadow-[0_0_35px_rgba(0,0,0,0.8)] backdrop-blur-md flex flex-col gap-4">
+      <div class="text-center">
+        <h1 class="pixel-font text-2xl text-yellow-400 drop-shadow-[2px_2px_0_#000]">BLOCK LOBBY</h1>
+        <p class="text-xs text-gray-300 mt-1">自然山林交流廳</p>
+      </div>
+
+      <!-- 自訂頭像選取區 -->
+      <div class="flex items-center gap-3 bg-neutral-900/90 border-2 border-white/20 p-3 rounded-md">
+        <div class="relative group cursor-pointer w-14 h-14 rounded bg-neutral-800 border-2 border-white/40 overflow-hidden flex-shrink-0 flex items-center justify-center" onclick="document.getElementById('avatar-file').click()">
+          <img id="avatar-preview" src="" class="w-full h-full object-cover hidden" />
+          <span id="avatar-placeholder" class="text-[10px] text-gray-400 pixel-font">頭像</span>
+          <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <span class="text-[9px] text-yellow-300 pixel-font">更換</span>
+          </div>
+        </div>
+        <input id="avatar-file" type="file" accept="image/*" class="hidden" onchange="handleAvatarUpload(event)" />
+        <div class="flex flex-col gap-1.5 flex-1">
+          <div class="flex gap-2">
+            <button type="button" onclick="document.getElementById('avatar-file').click()" class="mc-btn px-2 py-1 text-[8px]">上傳照片</button>
+            <button type="button" onclick="resetDefaultAvatar()" class="mc-btn px-2 py-1 text-[8px]">隨機外觀</button>
+          </div>
+          <span class="text-[9px] text-gray-400">點擊頭像亦可自訂上傳</span>
+        </div>
+      </div>
+
+      <!-- 表單 -->
+      <div class="flex flex-col gap-3">
+        <div>
+          <label class="block pixel-font text-[9px] text-gray-300 mb-1">你的暱稱</label>
+          <input id="input-username" type="text" maxlength="12" value="Player" placeholder="輸入暱稱..."
+            class="w-full bg-black/80 border-2 border-white/40 px-3 py-2 text-sm text-white rounded focus:outline-none focus:border-yellow-400 font-sans" />
+        </div>
+
+        <div>
+          <label class="block pixel-font text-[9px] text-gray-300 mb-1">大廳名稱</label>
+          <input id="input-room" type="text" maxlength="15" value="綠野山谷" placeholder="輸入大廳代碼..."
+            class="w-full bg-black/80 border-2 border-white/40 px-3 py-2 text-sm text-white rounded focus:outline-none focus:border-yellow-400 font-sans" />
+        </div>
+
+        <button onclick="joinLobby()" class="mc-btn py-3 bg-yellow-400 hover:bg-yellow-300 text-neutral-900 text-xs mt-1">
+          進入大廳 (JOIN)
+        </button>
+
+        <div id="conn-hint" class="pixel-font text-[9px] text-center text-gray-400 mt-1">準備就緒</div>
+      </div>
+    </div>
+
+    <!-- 2. 全螢幕聊天室 -->
+    <div id="lobby-panel" class="relative z-20 hidden w-[95vw] h-[92vh] max-w-6xl bg-neutral-950/95 border-4 border-gray-600 rounded-xl p-4 shadow-[0_0_50px_rgba(0,0,0,0.95)] flex flex-col justify-between gap-3">
+      
+      <!-- 頂部資訊列 -->
+      <div class="flex justify-between items-center pb-2.5 border-b border-white/20">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 bg-neutral-900 border border-white/30 px-3 py-1 rounded">
+            <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+            <span id="lobby-title" class="pixel-font text-xs text-yellow-400">大廳: ---</span>
+          </div>
+          <span class="pixel-font text-[9px] text-gray-300">
+            在線成員: <span id="online-count" class="text-green-400 font-bold">1</span> 人
+          </span>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <span class="pixel-font text-[8px] text-gray-400">延遲: <span id="ping-stat" class="text-green-400">0ms</span></span>
+          <button onclick="leaveLobby()" class="mc-btn px-3 py-1.5 text-[9px] bg-red-400 hover:bg-red-300 text-neutral-900">
+            離開大廳
+          </button>
+        </div>
+      </div>
+
+      <!-- 中央內容 -->
+      <div class="flex-1 flex gap-3 overflow-hidden">
+        <div class="flex-1 bg-black/70 border-2 border-white/20 rounded-lg p-3 flex flex-col justify-between overflow-hidden">
+          <div id="chat-scroller" class="flex-1 overflow-y-auto pr-2 flex flex-col gap-3 font-sans text-sm"></div>
+        </div>
+
+        <div class="w-60 bg-black/70 border-2 border-white/20 rounded-lg p-3 flex flex-col">
+          <div class="pixel-font text-[9px] text-gray-300 mb-2 pb-1 border-b border-white/20 flex justify-between items-center">
+            <span>線上好友</span>
+            <span class="text-green-400 text-[8px]">即時連線</span>
+          </div>
+          <div id="player-list" class="flex-1 overflow-y-auto flex flex-col gap-1.5"></div>
+        </div>
+      </div>
+
+      <!-- 底部工具列 -->
+      <div class="pt-1 flex flex-col gap-2">
+        <div class="flex items-center gap-2">
+          <input id="file-upload-input" type="file" multiple class="hidden" onchange="handleFilesSelected(event)" />
+
+          <button onclick="document.getElementById('file-upload-input').click()" class="mc-btn px-3 py-1.5 text-[10px] flex items-center gap-1.5">
+            ⚡ <span>新增檔案</span>
+          </button>
+
+          <!-- 發送進度與取消按鈕 -->
+          <div id="transfer-progress-bar" class="hidden items-center gap-2 bg-neutral-900 border border-white/30 px-2.5 py-1 rounded text-[9px] text-yellow-300">
+            <span id="transfer-spin" class="w-2 h-2 rounded-full bg-yellow-400 animate-ping"></span>
+            <span id="transfer-progress-text">準備傳輸中...</span>
+            <button onclick="cancelActiveUpload()" class="ml-1 text-[9px] text-red-400 hover:text-red-300 underline font-bold">全部取消</button>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <input
+            id="chat-input"
+            type="text"
+            maxlength="300"
+            placeholder="說點什麼吧... (按 Enter 發送)"
+            onkeydown="if(event.key === 'Enter') sendTextMessage();"
+            class="flex-1 bg-black/90 border-2 border-white/40 px-3.5 py-2 rounded text-sm text-white focus:outline-none focus:border-yellow-400 font-sans"
+          />
+          <button onclick="sendTextMessage()" class="mc-btn px-6 py-2 bg-yellow-400 hover:bg-yellow-300 text-neutral-900 text-xs">
+            發送
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 圖片放大預覽彈窗 -->
+    <div id="image-modal" class="fixed inset-0 z-50 bg-black/90 flex items-center justify-center hidden p-4" onclick="this.classList.add('hidden')">
+      <img id="image-modal-preview" src="" class="max-w-full max-h-[90vh] object-contain rounded border-2 border-white/60 shadow-2xl" />
+    </div>
+
+    <script>
+      /* ============================================================
+         1. 3D 背景渲染
+         ============================================================ */
+      function generatePixelTexture(drawCallback) {
+        const cv = document.createElement("canvas");
+        cv.width = 16; cv.height = 16;
+        const ctx = cv.getContext("2d");
+        drawCallback(ctx);
+        const tex = new THREE.CanvasTexture(cv);
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        return tex;
+      }
+
+      const texGrassTop = generatePixelTexture((ctx) => {
+        ctx.fillStyle = "#5b8c32"; ctx.fillRect(0, 0, 16, 16);
+        for (let x = 0; x < 16; x++) for (let y = 0; y < 16; y++) {
+          if (Math.random() < 0.3) { ctx.fillStyle = "#4a7328"; ctx.fillRect(x, y, 1, 1); }
+          else if (Math.random() < 0.25) { ctx.fillStyle = "#6ea63c"; ctx.fillRect(x, y, 1, 1); }
+        }
+      });
+      const texGrassSide = generatePixelTexture((ctx) => {
+        ctx.fillStyle = "#866043"; ctx.fillRect(0, 0, 16, 16);
+        for (let x = 0; x < 16; x++) {
+          for (let y = 0; y < 16; y++) {
+            if (Math.random() < 0.25) { ctx.fillStyle = "#6e4e36"; ctx.fillRect(x, y, 1, 1); }
+          }
+          const depth = Math.floor(Math.random() * 3) + 3;
+          for (let y = 0; y < depth; y++) { ctx.fillStyle = "#5b8c32"; ctx.fillRect(x, y, 1, 1); }
+        }
+      });
+      const texDirt = generatePixelTexture((ctx) => {
+        ctx.fillStyle = "#866043"; ctx.fillRect(0, 0, 16, 16);
+        for (let x = 0; x < 16; x++) for (let y = 0; y < 16; y++) {
+          if (Math.random() < 0.25) { ctx.fillStyle = "#6e4e36"; ctx.fillRect(x, y, 1, 1); }
+        }
+      });
+      const texStone = generatePixelTexture((ctx) => {
+        ctx.fillStyle = "#7e7e7e"; ctx.fillRect(0, 0, 16, 16);
+        ctx.fillStyle = "#686868";
+        [[2,1],[6,3],[11,2],[1,5],[8,6],[13,5],[4,9],[9,10],[14,9],[2,13],[7,14],[12,13]].forEach(([x,y]) => ctx.fillRect(x,y,3,1));
+      });
+      const texLogSide = generatePixelTexture((ctx) => {
+        ctx.fillStyle = "#6d5332"; ctx.fillRect(0, 0, 16, 16);
+        [[0, "#563f24"], [1, "#7d613c"], [4, "#563f24"], [5, "#7d613c"], [8, "#563f24"]].forEach(([x, color]) => {
+          ctx.fillStyle = color;
+          for (let y = 0; y < 16; y++) { if ((x + y * 3) % 5 !== 0) ctx.fillRect(x, y, 1, 1); }
+        });
+      });
+      const texLogTop = generatePixelTexture((ctx) => {
+        ctx.fillStyle = "#a8854f"; ctx.fillRect(0, 0, 16, 16);
+        ctx.strokeStyle = "#563f24"; ctx.strokeRect(0.5, 0.5, 15, 15);
+        ctx.fillStyle = "#735429"; ctx.fillRect(7, 7, 2, 2);
+      });
+      const texLeaves = generatePixelTexture((ctx) => {
+        ctx.fillStyle = "#388225"; ctx.fillRect(0, 0, 16, 16);
+        ctx.fillStyle = "#2c681d";
+        [[2,2],[6,1],[11,3],[3,7],[8,6],[13,8],[1,12],[7,11]].forEach(([x,y]) => ctx.fillRect(x,y,3,3));
+      });
+
+      const matGrass = [
+        new THREE.MeshLambertMaterial({ map: texGrassSide }),
+        new THREE.MeshLambertMaterial({ map: texGrassSide }),
+        new THREE.MeshLambertMaterial({ map: texGrassTop }),
+        new THREE.MeshLambertMaterial({ map: texDirt }),
+        new THREE.MeshLambertMaterial({ map: texGrassSide }),
+        new THREE.MeshLambertMaterial({ map: texGrassSide })
+      ];
+      const matLog = [
+        new THREE.MeshLambertMaterial({ map: texLogSide }),
+        new THREE.MeshLambertMaterial({ map: texLogSide }),
+        new THREE.MeshLambertMaterial({ map: texLogTop }),
+        new THREE.MeshLambertMaterial({ map: texLogTop }),
+        new THREE.MeshLambertMaterial({ map: texLogSide }),
+        new THREE.MeshLambertMaterial({ map: texLogSide })
+      ];
+      const matStone = new THREE.MeshLambertMaterial({ map: texStone });
+      const matLeaves = new THREE.MeshLambertMaterial({ map: texLeaves, transparent: true, alphaTest: 0.2 });
+
+      let bgScene, bgCamera, bgRenderer;
+      let isLobbyOpen = false;
+
+      function init3DWorld() {
+        const canvas = document.getElementById("bg-canvas");
+        bgRenderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+        bgRenderer.setSize(window.innerWidth, window.innerHeight);
+        bgRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        bgScene = new THREE.Scene();
+        bgScene.background = new THREE.Color(0xa5c9ff);
+        bgScene.fog = new THREE.FogExp2(0xa5c9ff, 0.009);
+
+        bgCamera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 300);
+
+        bgScene.add(new THREE.AmbientLight(0xffffff, 0.65));
+        const sunLight = new THREE.DirectionalLight(0xfffdf0, 0.95);
+        sunLight.position.set(50, 80, -30);
+        bgScene.add(sunLight);
+
+        const GW = 90, GH = 50, GD = 90;
+        const voxels = new Uint8Array(GW * GH * GD);
+        function setV(x, y, z, v) {
+          if (x >= 0 && x < GW && y >= 0 && y < GH && z >= 0 && z < GD) voxels[x + y * GW + z * GW * GH] = v;
+        }
+        function getV(x, y, z) {
+          if (x < 0 || x >= GW || y < 0 || y >= GH || z < 0 || z >= GD) return 0;
+          return voxels[x + y * GW + z * GW * GH];
+        }
+
+        for (let x = 0; x < GW; x++) {
+          for (let z = 0; z < GD; z++) {
+            const nx = x * 0.08, nz = z * 0.08;
+            const h = Math.floor(Math.sin(nx) * 5 + Math.cos(nz) * 5 + Math.sin(nx * 0.5 + nz * 0.5) * 8 + 14);
+            for (let y = 0; y <= h; y++) {
+              if (y === h) setV(x, y, z, 1);
+              else setV(x, y, z, 2);
+            }
+          }
+        }
+
+        function plantTree(tx, ty, tz) {
+          const trunkH = Math.floor(Math.random() * 2) + 4;
+          for (let y = 0; y < trunkH; y++) setV(tx, ty + y, tz, 3);
+          const topY = ty + trunkH;
+          for (let lx = -2; lx <= 2; lx++) {
+            for (let lz = -2; lz <= 2; lz++) {
+              for (let ly = -2; ly <= 1; ly++) {
+                if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && (ly === 1 || Math.random() < 0.5)) continue;
+                if (!getV(tx + lx, topY + ly, tz + lz)) setV(tx + lx, topY + ly, tz + lz, 4);
+              }
+            }
+          }
+        }
+
+        for (let i = 0; i < 35; i++) {
+          const rx = Math.floor(Math.random() * (GW - 14)) + 7;
+          const rz = Math.floor(Math.random() * (GD - 14)) + 7;
+          for (let y = GH - 1; y >= 5; y--) {
+            if (getV(rx, y, rz) === 1) { plantTree(rx, y + 1, rz); break; }
+          }
+        }
+
+        const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+        const mats = { 1: matGrass, 2: matStone, 3: matLog, 4: matLeaves };
+        const meshes = {};
+        [1, 2, 3, 4].forEach(t => {
+          meshes[t] = new THREE.InstancedMesh(boxGeo, mats[t], 20000);
+          meshes[t].count = 0;
+          bgScene.add(meshes[t]);
+        });
+
+        const tempObj = new THREE.Object3D();
+        for (let x = 0; x < GW; x++) {
+          for (let y = 0; y < GH; y++) {
+            for (let z = 0; z < GD; z++) {
+              const t = getV(x, y, z);
+              if (t && meshes[t]) {
+                if (getV(x-1,y,z) && getV(x+1,y,z) && getV(x,y-1,z) && getV(x,y+1,z) && getV(x,y-1,z) && getV(x,y+1,z)) continue;
+                tempObj.position.set(x + 0.5, y + 0.5, z + 0.5);
+                tempObj.updateMatrix();
+                meshes[t].setMatrixAt(meshes[t].count++, tempObj.matrix);
+              }
+            }
+          }
+        }
+        [1, 2, 3, 4].forEach(t => meshes[t].instanceMatrix.needsUpdate = true);
+
+        window.addEventListener("resize", () => {
+          bgCamera.aspect = window.innerWidth / window.innerHeight;
+          bgCamera.updateProjectionMatrix();
+          bgRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        let angle = 0;
+        function renderLoop() {
+          requestAnimationFrame(renderLoop);
+          if (isLobbyOpen) return;
+
+          angle += 0.0016;
+          const radius = 48;
+          bgCamera.position.x = 45 + Math.sin(angle) * radius;
+          bgCamera.position.z = 45 + Math.cos(angle) * radius;
+          bgCamera.position.y = 28 + Math.sin(angle * 0.4) * 4;
+          bgCamera.lookAt(45, 16, 45);
+
+          bgRenderer.render(bgScene, bgCamera);
+        }
+        renderLoop();
+      }
+
+      /* ============================================================
+         2. 通訊核心與狀態控制
+         ============================================================ */
+      const BROKER_URL = "wss://broker.emqx.io:8084/mqtt";
+      const LOBBY_PREFIX = "blocklobby_v11/";
+      
+      let myId = "";
+      let client = null;
+      let currentTopic = "";
+      let myName = "Player";
+      let myAvatar = "";
+
+      const members = new Map();
+      let pingLoop = null;
+      let checkLoop = null;
+
+      // 發送佇列與全域任務池
+      const uploadQueue = [];
+      let totalBatchFiles = 0;
+      let completedBatchFiles = 0;
+      
+      const activeUploads = new Map();
+      const incomingChunks = new Map();
+
+      function formatBytes(bytes) {
+        if (!bytes || bytes === 0) return "0 B";
+        const k = 1024;
+        const sizes = ["B", "KB", "MB", "GB", "TB"];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+      }
+
+      function makeDefaultAvatar(char = "P") {
+        const colors = ["#2563eb", "#d97706", "#059669", "#dc2626", "#7c3aed"];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="${color}"/><text x="32" y="42" font-size="28" font-family="sans-serif" font-weight="900" fill="#fff" text-anchor="middle">${char.slice(0, 1).toUpperCase()}</text></svg>`;
+        return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+      }
+
+      function resetDefaultAvatar() {
+        const name = document.getElementById("input-username").value.trim() || "P";
+        myAvatar = makeDefaultAvatar(name);
+        setAvatarImg(myAvatar);
+      }
+
+      function setAvatarImg(src) {
+        const img = document.getElementById("avatar-preview");
+        img.src = src;
+        img.classList.remove("hidden");
+        document.getElementById("avatar-placeholder").classList.add("hidden");
+      }
+
+      function handleAvatarUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+          const img = new Image();
+          img.onload = function () {
+            const cv = document.createElement("canvas");
+            cv.width = 64; cv.height = 64;
+            const ctx = cv.getContext("2d");
+            const minSide = Math.min(img.width, img.height);
+            ctx.drawImage(img, (img.width - minSide) / 2, (img.height - minSide) / 2, minSide, minSide, 0, 0, 64, 64);
+            myAvatar = cv.toDataURL("image/webp", 0.7);
+            setAvatarImg(myAvatar);
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+
+      function getSafeTopic(roomName) {
+        let hash = 0;
+        for (let i = 0; i < roomName.length; i++) hash = ((hash << 5) - hash) + roomName.charCodeAt(i);
+        return "room_" + Math.abs(hash);
+      }
+
+      function waitForReconnect() {
+        return new Promise((resolve) => {
+          const timer = setInterval(() => {
+            if (client && client.connected) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, 200);
+        });
+      }
+
+      function joinLobby() {
+        myId = "u_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 8);
+
+        const nameInput = document.getElementById("input-username").value.trim();
+        const roomInput = document.getElementById("input-room").value.trim();
+
+        myName = nameInput || "Player";
+        if (!myAvatar) myAvatar = makeDefaultAvatar(myName);
+
+        const roomName = roomInput || "綠野山谷";
+        currentTopic = LOBBY_PREFIX + getSafeTopic(roomName);
+
+        document.getElementById("conn-hint").innerText = "連線伺服器中...";
+
+        client = mqtt.connect(BROKER_URL, {
+          clientId: myId,
+          clean: true,
+          connectTimeout: 10000,
+          reconnectPeriod: 2000,
+          will: {
+            topic: currentTopic,
+            payload: JSON.stringify({ type: "PLAYER_LEAVE", senderId: myId, name: myName }),
+            qos: 0
+          }
+        });
+
+        client.on("connect", () => {
+          client.subscribe(currentTopic, { qos: 0 }, (err) => {
+            if (err) {
+              alert("進入大廳失敗！");
+              leaveLobby();
+              return;
+            }
+
+            isLobbyOpen = true;
+            document.getElementById("login-panel").classList.add("hidden");
+            document.getElementById("lobby-panel").classList.remove("hidden");
+            document.getElementById("lobby-title").innerText = `大廳: ${roomName}`;
+
+            members.set(myId, { name: myName, avatar: myAvatar, lastSeen: Date.now() });
+            renderMemberList();
+
+            appendNotice(`歡迎來到 [${roomName}]！`);
+
+            sendData({ type: "HELLO", name: myName, avatar: myAvatar });
+            startHeartbeat();
+          });
+        });
+
+        client.on("message", (topic, payload) => {
+          try {
+            const msg = JSON.parse(payload.toString());
+            if (!msg || msg.senderId === myId) return;
+            handleMessage(msg);
+          } catch (e) {}
+        });
+
+        client.on("error", () => {
+          document.getElementById("conn-hint").innerText = "連線短暫不穩定，自動連線中...";
+        });
+      }
+
+      function sendData(data) {
+        if (!client || !client.connected) return false;
+        data.senderId = myId;
+        client.publish(currentTopic, JSON.stringify(data), { qos: 0 });
+        return true;
+      }
+
+      function handleMessage(msg) {
+        const senderId = msg.senderId;
+        if (!senderId) return;
+
+        switch (msg.type) {
+          case "CHAT_TEXT":
+            appendChatMessage(msg.name, msg.text, msg.avatar, "text", false, senderId);
+            break;
+
+          case "CHUNK_TRANSFER_START":
+            handleTransferStart(msg);
+            break;
+
+          case "CHUNK_DATA":
+            handleChunkData(msg);
+            break;
+
+          case "CHUNK_TRANSFER_CANCEL":
+            handleTransferCancel(msg);
+            break;
+
+          case "WINDOW_ACK":
+            if (msg.targetId === myId && activeUploads.has(msg.fileId)) {
+              const task = activeUploads.get(msg.fileId);
+              if (task && task.windowWaiters && task.windowWaiters.has(msg.windowIndex)) {
+                task.windowWaiters.get(msg.windowIndex).onAck();
+              }
+            }
+            break;
+
+          case "WINDOW_NACK":
+            if (msg.targetId === myId && activeUploads.has(msg.fileId)) {
+              const task = activeUploads.get(msg.fileId);
+              if (task && task.windowWaiters && task.windowWaiters.has(msg.windowIndex)) {
+                task.windowWaiters.get(msg.windowIndex).onNack(msg.missing);
+              }
+            }
+            break;
+
+          case "TRANSFER_CONFIRMED_SUCCESS":
+            if (msg.targetId === myId && activeUploads.has(msg.fileId)) {
+              const task = activeUploads.get(msg.fileId);
+              if (task && task.onConfirmed) task.onConfirmed();
+            }
+            break;
+
+          case "HELLO":
+            appendNotice(`${msg.name} 加入了大廳！`);
+            members.set(senderId, { name: msg.name, avatar: msg.avatar, lastSeen: Date.now() });
+            renderMemberList();
+            sendData({ type: "WELCOME", name: myName, avatar: myAvatar });
+            break;
+
+          case "WELCOME":
+          case "HEARTBEAT":
+            members.set(senderId, { name: msg.name, avatar: msg.avatar, lastSeen: Date.now() });
+            renderMemberList();
+            break;
+
+          case "PLAYER_LEAVE":
+            if (members.has(senderId)) {
+              appendNotice(`${members.get(senderId).name} 離開了大廳。`);
+              members.delete(senderId);
+              renderMemberList();
+            }
+            break;
+
+          case "PING":
+            if (msg.target === myId) sendData({ type: "PONG", target: senderId, time: msg.time });
+            break;
+
+          case "PONG":
+            if (msg.target === myId) {
+              const ping = Math.round(performance.now() - msg.time);
+              document.getElementById("ping-stat").innerText = `${ping}ms`;
+            }
+            break;
+        }
+      }
+
+      /* ============================================================
+         3. 🚀 4 通道流水線 + 256KB 伺服器安全極限大封包核心
+         ============================================================ */
+      // 🚀 封包擴大到 256KB（Base64後約 349KB，剛好安穩停在 EMQX 1MB 上限內）
+      const CHUNK_SIZE = 256 * 1024;
+      const WINDOW_SIZE = 2; // 每 2 個大切片 (512KB) 進行極速確認
+
+      function readSliceAsBase64(blob) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result;
+            const commaIndex = dataUrl.indexOf(",");
+            resolve(commaIndex !== -1 ? dataUrl.substring(commaIndex + 1) : dataUrl);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      function base64ToUint8(base64) {
+        const binStr = atob(base64);
+        const len = binStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binStr.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      function handleFilesSelected(e) {
+        const files = Array.from(e.target.files);
+        if (!files || files.length === 0) return;
+
+        totalBatchFiles += files.length;
+        for (const file of files) {
+          uploadQueue.push(file);
+        }
+        e.target.value = "";
+
+        processUploadPool();
+      }
+
+      // 4 通道調度器
+      function processUploadPool() {
+        if (!client || !client.connected) {
+          alert("尚未連上伺服器，請稍候再試！");
+          uploadQueue.length = 0;
+          return;
+        }
+
+        const progBar = document.getElementById("transfer-progress-bar");
+        progBar.classList.remove("hidden");
+        progBar.classList.add("flex");
+
+        // 🌟 核心：若只剩 1 個檔案，啟動「4 通道極限狂飆（4 核心全開）」！
+        if (activeUploads.size === 0 && uploadQueue.length === 1) {
+          const file = uploadQueue.shift();
+          streamFileWithChannels(file, 4).then(() => {
+            completedBatchFiles++;
+            updateOverallProgress();
+            checkFinishedAll();
+          });
+          updateOverallProgress();
+          return;
+        }
+
+        // 若有多個檔案，同時啟動 2 個檔案並行，每檔各配 2 條通道（合計 4 通道）
+        while (activeUploads.size < 2 && uploadQueue.length > 0) {
+          const file = uploadQueue.shift();
+          streamFileWithChannels(file, 2).then(() => {
+            completedBatchFiles++;
+            updateOverallProgress();
+            checkFinishedAll();
+            processUploadPool();
+          });
+        }
+        updateOverallProgress();
+      }
+
+      function checkFinishedAll() {
+        if (activeUploads.size === 0 && uploadQueue.length === 0) {
+          const progText = document.getElementById("transfer-progress-text");
+          progText.innerText = "🎉 所有檔案皆已 100% 傳輸完畢！";
+          setTimeout(() => {
+            if (uploadQueue.length === 0 && activeUploads.size === 0) {
+              const progBar = document.getElementById("transfer-progress-bar");
+              progBar.classList.add("hidden");
+              progBar.classList.remove("flex");
+              totalBatchFiles = 0;
+              completedBatchFiles = 0;
+            }
+          }, 1200);
+        }
+      }
+
+      function updateOverallProgress() {
+        const progText = document.getElementById("transfer-progress-text");
+        if (!progText) return;
+
+        if (activeUploads.size > 0 || uploadQueue.length > 0) {
+          let activeSummary = [];
+          activeUploads.forEach((task) => {
+            const chanTag = ` [${task.channels}通道⚡]`;
+            activeSummary.push(`${task.fileName}${chanTag} (${task.pct}%)`);
+          });
+          progText.innerText = `⚡ 4通道極速 [完成 ${completedBatchFiles}/${totalBatchFiles}] 排隊: ${uploadQueue.length} 檔 | ${activeSummary.join(" | ")}`;
+        }
+      }
+
+      // 多通道動態流水線發送器（支援 1~4 通道動態分發）
+      function streamFileWithChannels(file, channels = 4) {
+        return new Promise(async (resolve) => {
+          const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(file.name);
+          const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+          const totalWindows = Math.ceil(totalChunks / WINDOW_SIZE);
+          const fileId = "f_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 7);
+
+          // 本地即時預覽
+          const localBlobUrl = URL.createObjectURL(file);
+          if (isImage) {
+            appendChatMessage(myName, { url: localBlobUrl, fileName: file.name, fileSize: file.size }, myAvatar, "image", true, myId);
+          } else {
+            appendChatMessage(myName, { url: localBlobUrl, fileName: file.name, fileSize: file.size }, myAvatar, "file", true, myId);
+          }
+
+          let isResolved = false;
+          const finishThisFile = () => {
+            if (isResolved) return;
+            isResolved = true;
+            activeUploads.delete(fileId);
+            resolve();
+          };
+
+          const task = {
+            fileName: file.name,
+            channels: channels,
+            pct: 0,
+            file,
+            totalChunks,
+            totalWindows,
+            isCancelled: false,
+            sentChunks: new Set(),
+            windowWaiters: new Map(),
+            onConfirmed: null
+          };
+          activeUploads.set(fileId, task);
+
+          // 1. 發送檔案頭
+          sendData({
+            type: "CHUNK_TRANSFER_START",
+            fileId: fileId,
+            totalChunks: totalChunks,
+            totalWindows: totalWindows,
+            fileName: file.name,
+            fileType: file.type || "application/octet-stream",
+            fileSize: file.size,
+            isImage: isImage,
+            name: myName,
+            avatar: myAvatar
+          });
+
+          // 2. 動態任務搶單流水線
+          let nextWindowIdx = 0;
+
+          async function channelWorker(workerId) {
+            while (nextWindowIdx < totalWindows && !task.isCancelled) {
+              const w = nextWindowIdx++;
+              await sendSingleWindow(w);
+            }
+          }
+
+          async function sendSingleWindow(w) {
+            if (task.isCancelled) return;
+
+            const startIdx = w * WINDOW_SIZE;
+            const endIdx = Math.min(startIdx + WINDOW_SIZE, totalChunks);
+            let windowConfirmed = false;
+            let retryCount = 0;
+
+            while (!windowConfirmed && retryCount < 8) {
+              if (task.isCancelled) return;
+              if (!client || !client.connected) await waitForReconnect();
+
+              for (let i = startIdx; i < endIdx; i++) {
+                const offset = i * CHUNK_SIZE;
+                const sliceBlob = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+                const base64Chunk = await readSliceAsBase64(sliceBlob);
+
+                const isWindowEnd = (i === endIdx - 1);
+                sendData({
+                  type: "CHUNK_DATA",
+                  fileId: fileId,
+                  index: i,
+                  windowIndex: w,
+                  isWindowEnd: isWindowEnd,
+                  chunk: base64Chunk
+                });
+
+                task.sentChunks.add(i);
+                await new Promise((r) => setTimeout(r, 3));
+              }
+
+              task.pct = Math.round((task.sentChunks.size / totalChunks) * 100);
+              updateOverallProgress();
+
+              if (members.size <= 1) {
+                windowConfirmed = true;
+                break;
+              }
+
+              // 監聽該視窗專屬 ACK
+              const ackResult = await new Promise((ackResolve) => {
+                const timer = setTimeout(() => {
+                  task.windowWaiters.delete(w);
+                  ackResolve({ status: "TIMEOUT" });
+                }, 1400);
+
+                task.windowWaiters.set(w, {
+                  onAck: () => {
+                    clearTimeout(timer);
+                    task.windowWaiters.delete(w);
+                    ackResolve({ status: "ACK" });
+                  },
+                  onNack: async (missing) => {
+                    clearTimeout(timer);
+                    task.windowWaiters.delete(w);
+                    for (const mIdx of missing) {
+                      const offset = mIdx * CHUNK_SIZE;
+                      const sliceBlob = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+                      const base64Chunk = await readSliceAsBase64(sliceBlob);
+                      sendData({
+                        type: "CHUNK_DATA",
+                        fileId: fileId,
+                        index: mIdx,
+                        windowIndex: w,
+                        isWindowEnd: (mIdx === endIdx - 1),
+                        chunk: base64Chunk
+                      });
+                      await new Promise((r) => setTimeout(r, 3));
+                    }
+                    ackResolve({ status: "RETRY" });
+                  }
+                });
+              });
+
+              if (ackResult.status === "ACK") {
+                windowConfirmed = true;
+              } else {
+                retryCount++;
+                await new Promise((r) => setTimeout(r, 40));
+              }
+            }
+          }
+
+          // 啟動指定數量的 Worker 通道同時搶發
+          const activeWorkerPromises = [];
+          const actualChannels = Math.min(channels, totalWindows);
+          for (let c = 0; c < actualChannels; c++) {
+            activeWorkerPromises.push(channelWorker(c));
+          }
+
+          await Promise.all(activeWorkerPromises);
+
+          // 3. 完整拼裝握手
+          if (members.size > 1 && !task.isCancelled) {
+            await new Promise((finalResolve) => {
+              const timer = setTimeout(() => finalResolve(), 4000);
+              task.onConfirmed = () => {
+                clearTimeout(timer);
+                finalResolve();
+              };
+            });
+          }
+
+          finishThisFile();
+        });
+      }
+
+      function cancelActiveUpload() {
+        uploadQueue.length = 0;
+        totalBatchFiles = 0;
+        completedBatchFiles = 0;
+        activeUploads.forEach((task, fileId) => {
+          task.isCancelled = true;
+          sendData({ type: "CHUNK_TRANSFER_CANCEL", fileId: fileId });
+        });
+        activeUploads.clear();
+        document.getElementById("transfer-progress-bar").classList.add("hidden");
+        document.getElementById("transfer-progress-bar").classList.remove("flex");
+        appendNotice("已取消所有傳輸任務。");
+      }
+
+      function handleTransferStart(msg) {
+        const { fileId, totalChunks, totalWindows, fileName, fileType, fileSize, isImage, name, avatar, senderId } = msg;
+        const placeholderId = "box_" + fileId;
+
+        incomingChunks.set(fileId, {
+          chunks: new Array(totalChunks),
+          receivedCount: 0,
+          totalChunks: totalChunks,
+          totalWindows: totalWindows,
+          fileName: fileName,
+          fileType: fileType,
+          fileSize: fileSize,
+          isImage: isImage,
+          name: name,
+          avatar: avatar,
+          senderId: senderId,
+          placeholderId: placeholderId,
+          receivedBytes: 0,
+          totalBytes: fileSize
+        });
+
+        const box = document.getElementById("chat-scroller");
+        const row = document.createElement("div");
+        row.id = placeholderId;
+        row.className = "flex gap-2.5 max-w-[85%] self-start flex-row";
+        row.innerHTML = `
+          <img src="${avatar}" class="w-8 h-8 rounded object-cover border border-white/40 flex-shrink-0 mt-0.5" />
+          <div class="flex flex-col items-start">
+            <span class="text-xs font-bold text-gray-300 mb-1 px-1 font-sans">${name}</span>
+            <div class="p-3 rounded bg-neutral-900 border border-white/20 flex items-center gap-2 text-xs text-yellow-300">
+              <span class="w-2 h-2 rounded-full bg-yellow-400 animate-ping"></span>
+              <span id="${placeholderId}_txt">📥 正在 4 通道極速接收: 0 B / ${formatBytes(fileSize)} (0%)</span>
+            </div>
+          </div>
+        `;
+        box.appendChild(row);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function handleChunkData(msg) {
+        const { fileId, index, windowIndex, isWindowEnd, chunk } = msg;
+        const pack = incomingChunks.get(fileId);
+        if (!pack) return;
+
+        if (!pack.chunks[index]) {
+          const uint8 = base64ToUint8(chunk);
+          pack.chunks[index] = uint8;
+          pack.receivedCount++;
+          pack.receivedBytes += uint8.length;
+
+          const txt = document.getElementById(pack.placeholderId + "_txt");
+          if (txt) {
+            const pct = Math.round((pack.receivedCount / pack.totalChunks) * 100);
+            txt.innerText = `📥 正在 4 通道極速接收: ${formatBytes(pack.receivedBytes)} / ${formatBytes(pack.totalBytes)} (${pct}%)`;
+          }
+        }
+
+        if (isWindowEnd || index === pack.totalChunks - 1) {
+          const startIdx = windowIndex * WINDOW_SIZE;
+          const endIdx = Math.min(startIdx + WINDOW_SIZE, pack.totalChunks);
+          const missing = [];
+
+          for (let i = startIdx; i < endIdx; i++) {
+            if (!pack.chunks[i]) missing.push(i);
+          }
+
+          if (missing.length === 0) {
+            sendData({
+              type: "WINDOW_ACK",
+              targetId: pack.senderId,
+              fileId: fileId,
+              windowIndex: windowIndex
+            });
+
+            if (pack.receivedCount === pack.totalChunks) {
+              const fullBlob = new Blob(pack.chunks, { type: pack.fileType });
+              const objectUrl = URL.createObjectURL(fullBlob);
+
+              finalizeReceivedFile(pack, objectUrl);
+
+              sendData({
+                type: "TRANSFER_CONFIRMED_SUCCESS",
+                targetId: pack.senderId,
+                fileId: fileId
+              });
+
+              pack.chunks = null;
+              incomingChunks.delete(fileId);
+            }
+          } else {
+            sendData({
+              type: "WINDOW_NACK",
+              targetId: pack.senderId,
+              fileId: fileId,
+              windowIndex: windowIndex,
+              missing: missing
+            });
+          }
+        }
+      }
+
+      function handleTransferCancel(msg) {
+        const pack = incomingChunks.get(msg.fileId);
+        if (!pack) return;
+
+        const el = document.getElementById(pack.placeholderId);
+        if (el) {
+          el.innerHTML = `<span class="text-xs text-red-400 my-1 px-3 py-1 bg-neutral-900 rounded border border-red-500/30">⚠️ 傳輸已取消。</span>`;
+        }
+        pack.chunks = null;
+        incomingChunks.delete(msg.fileId);
+      }
+
+      function finalizeReceivedFile(pack, objectUrl) {
+        const row = document.getElementById(pack.placeholderId);
+        if (!row) return;
+
+        const contentDiv = row.querySelector(".flex-col");
+        if (pack.isImage) {
+          contentDiv.innerHTML = `
+            <span class="text-xs font-bold text-gray-300 mb-1 px-1 font-sans">${pack.name}</span>
+            <div class="p-2 rounded bg-neutral-900 border border-white/20 flex flex-col gap-2 max-w-xs sm:max-w-sm">
+              <img src="${objectUrl}" class="max-w-full max-h-[260px] rounded object-contain cursor-pointer hover:opacity-95" onclick="showBigImage('${objectUrl}')" />
+              <div class="flex justify-between items-center pt-1 border-t border-white/10">
+                <span class="text-[10px] text-gray-300 truncate max-w-[140px]">${pack.fileName} (${formatBytes(pack.totalBytes)})</span>
+                <a href="${objectUrl}" download="${pack.fileName}" class="mc-btn px-2.5 py-1 text-[8px] text-neutral-900 bg-yellow-400 hover:bg-yellow-300">下載檔案</a>
+              </div>
+            </div>
+          `;
+        } else {
+          contentDiv.innerHTML = `
+            <span class="text-xs font-bold text-gray-300 mb-1 px-1 font-sans">${pack.name}</span>
+            <div class="p-3 rounded bg-neutral-900 border border-white/20 flex flex-col gap-2 min-w-[200px] max-w-sm">
+              <div class="flex items-center gap-2 font-mono font-bold text-yellow-300 text-xs">
+                <span class="text-base">📄</span>
+                <span class="truncate">${pack.fileName}</span>
+              </div>
+              <div class="text-[10px] text-gray-400">大小: ${formatBytes(pack.totalBytes)}</div>
+              <div class="flex justify-end pt-1 border-t border-white/10">
+                <a href="${objectUrl}" download="${pack.fileName}" class="mc-btn w-full text-center py-1.5 text-[9px] text-neutral-900 bg-yellow-400 hover:bg-yellow-300">下載檔案</a>
+              </div>
+            </div>
+          `;
+        }
+        document.getElementById("chat-scroller").scrollTop = document.getElementById("chat-scroller").scrollHeight;
+      }
+
+      /* ============================================================
+         4. 聊天常規訊息 & 介面渲染
+         ============================================================ */
+      function sendTextMessage() {
+        const input = document.getElementById("chat-input");
+        const text = input.value.trim();
+        if (!text) return;
+
+        appendChatMessage(myName, text, myAvatar, "text", true, myId);
+        sendData({ type: "CHAT_TEXT", name: myName, avatar: myAvatar, text: text });
+        input.value = "";
+        input.focus();
+      }
+
+      function renderMemberList() {
+        const container = document.getElementById("player-list");
+        document.getElementById("online-count").innerText = members.size;
+        container.innerHTML = "";
+
+        members.forEach((user, id) => {
+          const isMe = (id === myId);
+          const shortId = id.slice(-3);
+          const row = document.createElement("div");
+          row.className = "flex items-center justify-between bg-black/40 px-2.5 py-1.5 rounded border border-white/10 text-xs";
+          row.innerHTML = `
+            <div class="flex items-center gap-2 overflow-hidden">
+              <img src="${user.avatar}" class="w-6 h-6 rounded object-cover border border-white/40 flex-shrink-0" />
+              <span class="truncate font-sans font-medium text-gray-200">
+                ${user.name} <span class="text-[9px] text-gray-500 font-mono">#${shortId}</span> ${isMe ? '<span class="text-[9px] text-yellow-400 font-bold">(你)</span>' : ''}
+              </span>
+            </div>
+            <span class="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0"></span>
+          `;
+          container.appendChild(row);
+        });
+      }
+
+      function appendChatMessage(sender, data, avatar, type = "text", isMe = false, senderId = "") {
+        const box = document.getElementById("chat-scroller");
+        const row = document.createElement("div");
+        row.className = `flex gap-2.5 max-w-[85%] ${isMe ? "self-end flex-row-reverse" : "self-start flex-row"}`;
+
+        let innerContent = "";
+
+        if (type === "text") {
+          innerContent = `
+            <div class="px-4 py-2 rounded-lg text-sm font-sans break-words select-text shadow-md ${
+              isMe
+                ? "bg-yellow-400 text-neutral-950 font-medium"
+                : "bg-neutral-800 text-white border border-neutral-600"
+            }">${data}</div>
+          `;
+        } else if (type === "image") {
+          const { url, fileName, fileSize } = data;
+          innerContent = `
+            <div class="p-2 rounded bg-neutral-900 border border-white/20 flex flex-col gap-2 max-w-xs sm:max-w-sm">
+              <img src="${url}" class="max-w-full max-h-[260px] rounded object-contain cursor-pointer hover:opacity-95" onclick="showBigImage('${url}')" />
+              <div class="flex justify-between items-center pt-1 border-t border-white/10">
+                <span class="text-[10px] text-gray-300 truncate max-w-[140px]">${fileName} (${formatBytes(fileSize)})</span>
+                <a href="${url}" download="${fileName}" class="mc-btn px-2.5 py-1 text-[8px] text-neutral-900 bg-yellow-400 hover:bg-yellow-300">下載檔案</a>
+              </div>
+            </div>
+          `;
+        } else if (type === "file") {
+          const { fileName, url, fileSize } = data;
+          innerContent = `
+            <div class="p-3 rounded bg-neutral-900 border border-white/20 flex flex-col gap-2 min-w-[200px] max-w-sm">
+              <div class="flex items-center gap-2 font-mono font-bold text-yellow-300 text-xs">
+                <span class="text-base">📄</span>
+                <span class="truncate">${fileName}</span>
+              </div>
+              <div class="text-[10px] text-gray-400">大小: ${formatBytes(fileSize)}</div>
+              <div class="flex justify-end pt-1 border-t border-white/10">
+                <a href="${url}" download="${fileName}" class="mc-btn w-full text-center py-1.5 text-[9px] text-neutral-900 bg-yellow-400 hover:bg-yellow-300">下載檔案</a>
+              </div>
+            </div>
+          `;
+        }
+
+        row.innerHTML = `
+          <img src="${avatar}" class="w-8 h-8 rounded object-cover border border-white/40 flex-shrink-0 mt-0.5" />
+          <div class="flex flex-col ${isMe ? "items-end" : "items-start"}">
+            <span class="text-xs font-bold ${isMe ? "text-yellow-400" : "text-gray-300"} mb-1 px-1 font-sans">${sender}</span>
+            ${innerContent}
+          </div>
+        `;
+
+        box.appendChild(row);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function appendNotice(text) {
+        const box = document.getElementById("chat-scroller");
+        const notice = document.createElement("div");
+        notice.className = "text-xs text-yellow-300 text-center my-1 bg-black/50 py-1.5 px-3.5 rounded-full self-center border border-white/15 font-sans";
+        notice.textContent = text;
+        box.appendChild(notice);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function showBigImage(src) {
+        document.getElementById("image-modal-preview").src = src;
+        document.getElementById("image-modal").classList.remove("hidden");
+      }
+
+      function startHeartbeat() {
+        pingLoop = setInterval(() => {
+          sendData({ type: "HEARTBEAT", name: myName, avatar: myAvatar });
+          const otherIds = Array.from(members.keys()).filter(id => id !== myId);
+          if (otherIds.length > 0) {
+            const target = otherIds[Math.floor(Math.random() * otherIds.length)];
+            sendData({ type: "PING", target: target, time: performance.now() });
+          }
+        }, 3000);
+
+        checkLoop = setInterval(() => {
+          const now = Date.now();
+          let changed = false;
+          members.forEach((user, id) => {
+            if (id !== myId && now - user.lastSeen > 8000) {
+              members.delete(id);
+              changed = true;
+            }
+          });
+          if (changed) renderMemberList();
+        }, 2000);
+      }
+
+      function leaveLobby() {
+        if (pingLoop) clearInterval(pingLoop);
+        if (checkLoop) clearInterval(checkLoop);
+
+        if (client) {
+          sendData({ type: "PLAYER_LEAVE", name: myName });
+          client.end(true);
+          client = null;
+        }
+
+        isLobbyOpen = false;
+        members.clear();
+        uploadQueue.length = 0;
+        document.getElementById("lobby-panel").classList.add("hidden");
+        document.getElementById("login-panel").classList.remove("hidden");
+        document.getElementById("chat-scroller").innerHTML = "";
+        document.getElementById("conn-hint").innerText = "已離開大廳";
+      }
+
+      window.onload = () => {
+        init3DWorld();
+        resetDefaultAvatar();
+      };
+
+      window.addEventListener("beforeunload", () => {
+        if (client && client.connected) {
+          sendData({ type: "PLAYER_LEAVE", name: myName });
+        }
+      });
+    </script>
+  </body>
+</html>
